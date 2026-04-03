@@ -33,8 +33,9 @@ function createWindow() {
     width: 1000,
     height: 800,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(app.getAppPath(), 'dist-electron', 'preload.js'),
     },
+    // Dark mode aesthetic base
     backgroundColor: '#0f172a',
     titleBarStyle: 'hidden',
     titleBarOverlay: {
@@ -46,7 +47,8 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL)
   } else {
-    win.loadFile(path.join(process.env.DIST, 'index.html'))
+    // Rigidly loads dist index inside production ASAR bundles
+    win.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'))
   }
 }
 
