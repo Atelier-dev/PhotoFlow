@@ -1,0 +1,33 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  # Allows you to trigger this build manually from the GitHub Actions UI
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install Dependencies
+      run: npm install
+
+    - name: Build macOS App
+      run: npm run build:mac
+      
+    - name: Upload macOS Executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: PhotoFlow-macOS-App
+        path: dist/*.dmg 
+        # electron-builder by default produces a .dmg inside the dist directory
