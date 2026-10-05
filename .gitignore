@@ -4,3 +4,10 @@ dist-electron/
 release/
 .env
 .DS_Store
+
+# Test and temp files
+test_output.JPG
+test_sharp.js
+
+# Agent files
+.agents/

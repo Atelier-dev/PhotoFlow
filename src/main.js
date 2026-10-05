@@ -1,21 +1,66 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const tabs = document.querySelectorAll('.tab');
     const views = document.querySelectorAll('.view');
+    const backButtons = document.querySelectorAll('.btn-back');
     
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            tabs.forEach(t => t.classList.remove('active'));
-            views.forEach(v => v.classList.remove('active'));
-            
-            tab.classList.add('active');
-            const targetId = tab.getAttribute('data-target');
-            document.getElementById(targetId).classList.add('active');
+    function showView(targetId) {
+        views.forEach(v => v.classList.remove('active'));
+        document.getElementById(targetId).classList.add('active');
+    }
+
+    // --- Failed Files Log UI Helpers ---
+    function showFailedFilesLog(containerId, failedFiles) {
+        const container = document.getElementById(containerId);
+        const existingLog = container.querySelector('.failed-files-log');
+        if (existingLog) existingLog.remove();
+        
+        if (!failedFiles || failedFiles.length === 0) return;
+        
+        const logBox = document.createElement('div');
+        logBox.className = 'failed-files-log';
+        
+        failedFiles.forEach(item => {
+            const el = document.createElement('div');
+            el.className = 'failed-file-item';
+            el.innerHTML = `<strong>${item.fileName}</strong>: ${item.error}`;
+            logBox.appendChild(el);
+        });
+        
+        container.appendChild(logBox);
+    }
+
+    function clearFailedFilesLog(containerId) {
+        const container = document.getElementById(containerId);
+        const existingLog = container.querySelector('.failed-files-log');
+        if (existingLog) existingLog.remove();
+    }
+
+    backButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-target');
+            showView(targetId);
         });
     });
 
+    document.getElementById('btnOpenExtract').addEventListener('click', () => showView('extract'));
+    document.getElementById('btnOpenCompress').addEventListener('click', () => showView('compress'));
+    document.getElementById('btnOpenMerge').addEventListener('click', () => showView('merge'));
+
+    let extractSource = null;
+    let compressSource = null;
+    let mergeSource = null;
+
+    function getSourceDisplay(src) {
+        if (!src) return '';
+        if (Array.isArray(src)) {
+            if (src.length === 1) return src[0];
+            return `${src.length} items selected`;
+        }
+        return src;
+    }
+
     // --- Extract Module Logic ---
-    const btnBrowseSource = document.getElementById('btnBrowseExtractSource');
-    const btnBrowseOutput = document.getElementById('btnBrowseExtractOutput');
+    const btnBrowseExtractSource = document.getElementById('btnBrowseExtractSource');
+    const btnBrowseExtractOutput = document.getElementById('btnBrowseExtractOutput');
     const extractSourceInput = document.getElementById('extractSourceInput');
     const extractOutputInput = document.getElementById('extractOutputInput');
     const extractListInput = document.getElementById('extractListInput');
@@ -26,22 +71,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const extractProgressText = document.getElementById('extractProgressText');
 
     function checkExtractReady() {
-        if (extractSourceInput.value && extractOutputInput.value && extractListInput.value.trim().length > 0) {
+        if (extractSource && extractOutputInput.value && extractListInput.value.trim().length > 0) {
             btnStartExtract.disabled = false;
         } else {
             btnStartExtract.disabled = true;
         }
     }
 
-    btnBrowseSource.addEventListener('click', async () => {
-        const folder = await window.electronAPI.selectFolder();
-        if (folder) {
-            extractSourceInput.value = folder;
+    btnBrowseExtractSource.addEventListener('click', async () => {
+        const result = await window.electronAPI.selectSource();
+        if (result) {
+            extractSource = result;
+            extractSourceInput.value = getSourceDisplay(extractSource);
             checkExtractReady();
         }
     });
 
-    btnBrowseOutput.addEventListener('click', async () => {
+    btnBrowseExtractOutput.addEventListener('click', async () => {
         const folder = await window.electronAPI.selectFolder();
         if (folder) {
             extractOutputInput.value = folder;
@@ -53,18 +99,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     btnStartExtract.addEventListener('click', async () => {
         const data = {
-            source: extractSourceInput.value,
+            source: extractSource,
             output: extractOutputInput.value,
             listText: extractListInput.value
         };
         
         btnStartExtract.disabled = true;
+        document.getElementById('btnCancelExtract').disabled = false;
+        clearFailedFilesLog('extractProgressContainer');
         extractProgressContainer.classList.remove('hidden');
         extractProgressFill.style.width = '0%';
-        extractProgressFill.style.background = 'linear-gradient(90deg, #3b82f6, #60a5fa)';
+        extractProgressFill.style.background = 'var(--pink-primary)';
         extractProgressText.innerText = 'Initializing...';
         
         await window.electronAPI.extractFiles(data);
+    });
+
+    document.getElementById('btnCancelExtract').addEventListener('click', async () => {
+        document.getElementById('btnCancelExtract').disabled = true;
+        extractProgressText.innerText = 'Canceling...';
+        await window.electronAPI.cancelProcess('extract');
     });
 
     window.electronAPI.onExtractProgress((data) => {
@@ -79,7 +133,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.electronAPI.onExtractComplete((result) => {
         btnStartExtract.disabled = false;
-        extractProgressText.innerText = `Complete! ${result.copiedCount} copied.`;
+        const failedCount = result.failedFiles ? result.failedFiles.length : 0;
+        
+        if (failedCount > 0) {
+            extractProgressText.innerText = `Complete with issues: ${result.copiedCount} success, ${failedCount} failed.`;
+            extractProgressFill.style.background = '#f59e0b'; // warning orange
+            showFailedFilesLog('extractProgressContainer', result.failedFiles);
+        } else {
+            extractProgressText.innerText = `Complete! All ${result.copiedCount} files copied.`;
+            extractProgressFill.style.background = 'var(--pink-primary)';
+            
+            // Reset after 3 seconds to let user see status on pure success
+            setTimeout(() => {
+                extractSource = null;
+                extractSourceInput.value = '';
+                extractOutputInput.value = '';
+                extractListInput.value = '';
+                checkExtractReady();
+                extractProgressContainer.classList.add('hidden');
+            }, 3000);
+        }
     });
 
     window.electronAPI.onExtractError((err) => {
@@ -103,8 +176,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const customResizeAxis = document.getElementById('customResizeAxis');
     const customSize = document.getElementById('customSize');
     const customQual = document.getElementById('customQual');
-    const valSize = document.getElementById('valSize');
-    const valQual = document.getElementById('valQual');
 
     const compProgressContainer = document.getElementById('compProgressContainer');
     const compProgressFill = document.getElementById('compProgressFill');
@@ -119,54 +190,61 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function calculateEstimation() {
-        if (currentScan.count === 0) {
-            compressEstimationText.innerText = 'Estimated Content: Select a folder...';
-            return;
-        }
-        
-        let ratio = 0.12; // default medium
         let selectedMode = 'medium';
         compModes.forEach(r => { if (r.checked) selectedMode = r.value; });
         
         if (selectedMode === 'custom') customSettingsBlock.classList.remove('hidden');
         else customSettingsBlock.classList.add('hidden');
 
+        if (currentScan.count === 0) {
+            compressEstimationText.innerText = 'Estimated Content: Select valid images...';
+            return;
+        }
+        
+        let ratio = 0.12; // default medium
+        
         if (selectedMode === 'high') ratio = 0.08;
         else if (selectedMode === 'medium') ratio = 0.12;
         else if (selectedMode === 'low') ratio = 0.30;
         else if (selectedMode === 'custom') {
-            const qual = parseInt(customQual.value, 10);
-            ratio = (qual / 100) * 0.25; // heuristic ratio
+            const qual = parseInt(customQual.value, 10) || 80;
+            ratio = (qual / 100) * 0.25; 
         }
 
         const estOut = currentScan.totalSize * ratio;
-        compressEstimationText.innerText = `Content: ${currentScan.count} images (~${formatBytes(currentScan.totalSize)}). Estimated Output: ~${formatBytes(estOut)}`;
+        compressEstimationText.innerText = `Content: ${currentScan.count} images (~${formatBytes(currentScan.totalSize)}). Est. Output: ~${formatBytes(estOut)}`;
     }
 
     function checkCompressReady() {
         calculateEstimation();
-        if (compressSourceInput.value && compressOutputInput.value && currentScan.count > 0) {
+        if (compressSource && compressOutputInput.value && currentScan.count > 0) {
             btnStartCompress.disabled = false;
         } else {
             btnStartCompress.disabled = true;
         }
     }
 
+    async function handleCompressScan() {
+        if (!compressSource) return;
+        compressEstimationText.innerText = 'Scanning...';
+        try {
+            currentScan = await window.electronAPI.scanCompressFolder(compressSource);
+            checkCompressReady();
+        } catch(e) {
+            compressEstimationText.innerText = 'Error scanning content';
+        }
+    }
+
     compModes.forEach(r => r.addEventListener('change', checkCompressReady));
-    customSize.addEventListener('input', (e) => { valSize.innerText = e.target.value; calculateEstimation(); });
-    customQual.addEventListener('input', (e) => { valQual.innerText = e.target.value; calculateEstimation(); });
+    customSize.addEventListener('input', checkCompressReady);
+    customQual.addEventListener('input', checkCompressReady);
 
     btnBrowseCompressSource.addEventListener('click', async () => {
-        const folder = await window.electronAPI.selectFolder();
-        if (folder) {
-            compressSourceInput.value = folder;
-            compressEstimationText.innerText = 'Scanning...';
-            try {
-                currentScan = await window.electronAPI.scanCompressFolder(folder);
-                checkCompressReady();
-            } catch(e) {
-                compressEstimationText.innerText = 'Error scanning folder';
-            }
+        const result = await window.electronAPI.selectSource();
+        if (result) {
+            compressSource = result;
+            compressSourceInput.value = getSourceDisplay(compressSource);
+            await handleCompressScan();
         }
     });
 
@@ -185,36 +263,71 @@ document.addEventListener('DOMContentLoaded', () => {
         let settings = { axis: 'long', size: 2560, quality: 75 };
         if (selectedMode === 'high') settings = { axis: 'width', size: 1080, quality: 70 };
         else if (selectedMode === 'low') settings = { axis: 'long', size: 4000, quality: 90 };
-        else if (selectedMode === 'custom') settings = { axis: customResizeAxis.value, size: parseInt(customSize.value, 10), quality: parseInt(customQual.value, 10) };
+        else if (selectedMode === 'custom') settings = { 
+            axis: customResizeAxis.value, 
+            size: parseInt(customSize.value, 10) || 2048, 
+            quality: parseInt(customQual.value, 10) || 80 
+        };
 
         const data = {
-            source: compressSourceInput.value,
+            source: compressSource,
             output: compressOutputInput.value,
             settings
         };
         
         btnStartCompress.disabled = true;
+        document.getElementById('btnCancelCompress').disabled = false;
+        clearFailedFilesLog('compProgressContainer');
         compProgressContainer.classList.remove('hidden');
         compProgressFill.style.width = '0%';
-        compProgressFill.style.background = 'linear-gradient(90deg, #3b82f6, #60a5fa)';
+        compProgressFill.style.background = 'var(--pink-primary)';
         compProgressText.innerText = 'Initializing...';
         
         await window.electronAPI.compressFiles(data);
     });
 
+    document.getElementById('btnCancelCompress').addEventListener('click', async () => {
+        document.getElementById('btnCancelCompress').disabled = true;
+        compProgressText.innerText = 'Canceling...';
+        await window.electronAPI.cancelProcess('compress');
+    });
+
     window.electronAPI.onCompressProgress((data) => {
         if (data.message) {
             compProgressText.innerText = data.message;
+            if (data.message.startsWith('FAILED')) {
+                compProgressFill.style.background = '#ef4444';
+            }
             return;
         }
+        compProgressFill.style.background = 'var(--pink-primary)';
         const percent = Math.round((data.current / data.total) * 100);
         compProgressFill.style.width = `${percent}%`;
-        compProgressText.innerText = `${data.current} / ${data.total} files compressed`;
+        compProgressText.innerText = `Processing: ${data.current} / ${data.total}`;
     });
 
     window.electronAPI.onCompressComplete((result) => {
         btnStartCompress.disabled = false;
-        compProgressText.innerText = `Complete! ${result.processed} compressed.`;
+        const failedCount = result.failedFiles ? result.failedFiles.length : 0;
+        
+        if (failedCount > 0) {
+            compProgressText.innerText = `Complete with issues: ${result.processed} success, ${failedCount} failed.`;
+            compProgressFill.style.background = '#f59e0b'; // amber warning
+            showFailedFilesLog('compProgressContainer', result.failedFiles);
+        } else {
+            compProgressText.innerText = `Complete! All ${result.processed} images compressed.`;
+            compProgressFill.style.background = 'var(--pink-primary)';
+            
+            // Reset after 3 seconds on success
+            setTimeout(() => {
+                compressSource = null;
+                compressSourceInput.value = '';
+                compressOutputInput.value = '';
+                currentScan = { count: 0, totalSize: 0, avgSize: 0 };
+                checkCompressReady();
+                compProgressContainer.classList.add('hidden');
+            }, 3000);
+        }
     });
 
     window.electronAPI.onCompressError((err) => {
@@ -241,25 +354,31 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentMergeScan = { count: 0, files: [] };
 
     function checkMergeReady() {
-        if (mergeSourceInput.value && mergeOutputInput.value && currentMergeScan.count > 0) {
+        if (mergeSource && mergeOutputInput.value && currentMergeScan.count > 0) {
             btnStartMerge.disabled = false;
         } else {
             btnStartMerge.disabled = true;
         }
     }
 
+    async function handleMergeScan() {
+        if (!mergeSource) return;
+        mergeEstimationText.innerText = 'Scanning...';
+        try {
+            currentMergeScan = await window.electronAPI.scanMergeFolder(mergeSource);
+            mergeEstimationText.innerText = `Found: ${currentMergeScan.count} zip-related items`;
+            checkMergeReady();
+        } catch(e) {
+            mergeEstimationText.innerText = 'Error scanning content';
+        }
+    }
+
     btnBrowseMergeSource.addEventListener('click', async () => {
-        const folder = await window.electronAPI.selectFolder();
-        if (folder) {
-            mergeSourceInput.value = folder;
-            mergeEstimationText.innerText = 'Scanning...';
-            try {
-                currentMergeScan = await window.electronAPI.scanMergeFolder(folder);
-                mergeEstimationText.innerText = `Found: ${currentMergeScan.count} split ZIP files`;
-                checkMergeReady();
-            } catch(e) {
-                mergeEstimationText.innerText = 'Error scanning folder';
-            }
+        const result = await window.electronAPI.selectMergeSource();
+        if (result) {
+            mergeSource = result;
+            mergeSourceInput.value = getSourceDisplay(mergeSource);
+            await handleMergeScan();
         }
     });
 
@@ -273,19 +392,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
     btnStartMerge.addEventListener('click', async () => {
         const data = {
-            source: mergeSourceInput.value,
+            source: mergeSource,
             output: mergeOutputInput.value,
             skipDuplicates: mergeSkipDuplicates.checked,
             normalizeRoot: mergeNormalizeRoot.checked
         };
         
         btnStartMerge.disabled = true;
+        document.getElementById('btnCancelMerge').disabled = false;
         mergeProgressContainer.classList.remove('hidden');
         mergeProgressFill.style.width = '0%';
-        mergeProgressFill.style.background = 'linear-gradient(90deg, #3b82f6, #60a5fa)';
+        mergeProgressFill.style.background = 'var(--pink-primary)';
         mergeProgressText.innerText = 'Initializing...';
         
-        await window.electronAPI.mergeFiles(data);
+        try {
+            await window.electronAPI.mergeFiles(data);
+        } catch (err) {
+            console.error('Merge click handler error:', err);
+            btnStartMerge.disabled = false;
+            mergeProgressText.innerText = `Error: ${err.message || err}`;
+            mergeProgressFill.style.background = '#ef4444'; // red error state
+        }
+    });
+
+    document.getElementById('btnCancelMerge').addEventListener('click', async () => {
+        document.getElementById('btnCancelMerge').disabled = true;
+        mergeProgressText.innerText = 'Canceling...';
+        await window.electronAPI.cancelProcess('merge');
     });
 
     window.electronAPI.onMergeProgress((data) => {
@@ -301,7 +434,16 @@ document.addEventListener('DOMContentLoaded', () => {
     window.electronAPI.onMergeComplete((result) => {
         btnStartMerge.disabled = false;
         mergeProgressFill.style.width = `100%`;
-        mergeProgressText.innerText = `Complete! Extracted ${result.totalExtracted} files across all ZIPs.`;
+        mergeProgressText.innerText = `Complete! Processed ${result.totalExtracted || 0} files.`;
+        
+        // Reset after 3 seconds
+        setTimeout(() => {
+            mergeSource = null;
+            mergeSourceInput.value = '';
+            mergeOutputInput.value = '';
+            mergeProgressContainer.classList.add('hidden');
+            checkMergeReady();
+        }, 3000);
     });
 
     window.electronAPI.onMergeError((err) => {
@@ -311,4 +453,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
 });
+
+
 

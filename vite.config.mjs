@@ -8,6 +8,13 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.js',
+        vite: {
+          build: {
+            rollupOptions: {
+              external: ['electron', 'sharp', 'yauzl']
+            }
+          }
+        }
       },
       {
         entry: 'electron/preload.js',

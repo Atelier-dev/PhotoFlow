@@ -1,168 +1,263 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PhotoFlow</title>
-    <!-- Use Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <script type="module" src="/src/main.js"></script>
-    <link rel="stylesheet" href="/src/styles.css" />
-  </head>
-  <body>
-    <!-- Draggable title bar for modern aesthetic -->
-    <div class="titlebar">PhotoFlow</div>
-    <div id="app">
-      <nav class="tabs">
-        <button class="tab active" data-target="extract">Extract</button>
-        <button class="tab" data-target="compress">Compress</button>
-        <button class="tab" data-target="merge">Merge ZIPs</button>
-      </nav>
-      
-      <main class="content">
-        <!-- Extract View -->
-        <section id="extract" class="view active">
-          <div class="header-container">
-            <h2>Extract from List</h2>
-          </div>
-          
-          <div class="input-group mt-20">
-            <label>Source Folder</label>
-            <div class="browse-row">
-              <input type="text" id="extractSourceInput" readonly placeholder="Select a folder with images...">
-              <button id="btnBrowseExtractSource" class="btn-primary">Browse</button>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pixiy</title>
+  <!-- Use Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;700&display=swap"
+    rel="stylesheet">
+  <script type="module" src="/src/main.js"></script>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+
+<body>
+  <!-- Draggable title bar for modern aesthetic -->
+  <div class="titlebar">
+    <img src="./logo.png" class="title-logo" alt="Pixiy Logo">
+    <span>Pixiy</span>
+  </div>
+  <div id="app">
+
+
+    <main class="content">
+      <!-- Landing View -->
+      <section id="landing" class="view active" style="margin-top: 15px;">
+        <div class="hero-section">
+          <img src="./logo.png" class="hero-logo" alt="Pixiy Logo">
+
+          <h1 class="title">Pixiy</h1>
+          <p class="subtitle">Run everything in one flow. Extract, sort, compress, and export.<br>One click. Zero manual
+            work.</p>
+        </div>
+
+        <div class="modules-grid mt-30">
+          <button class="module-card secondary-card" id="btnOpenExtract">
+            <div class="card-content">
+              <div class="icon-wrapper">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                </svg>
+              </div>
+              <h2>Extract Images</h2>
+              <p>Filter and extract specific files from large directories seamlessly using a custom list.</p>
             </div>
-          </div>
+          </button>
 
-          <div class="input-group mt-20">
-            <label>Filenames to Extract</label>
-            <textarea id="extractListInput" placeholder="DSC01107, DSC01116, DSC01122..."></textarea>
-            <div class="hint" style="color: var(--text-muted); font-size: 13px; margin-top: 5px;">Supports commas, spaces, and line breaks.</div>
-          </div>
-
-          <div class="input-group mt-20">
-            <label>Output Folder</label>
-            <div class="browse-row">
-              <input type="text" id="extractOutputInput" readonly placeholder="Select destination folder...">
-              <button id="btnBrowseExtractOutput" class="btn-primary">Browse</button>
+          <button class="module-card secondary-card" id="btnOpenCompress">
+            <div class="card-content">
+              <div class="icon-wrapper">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 14h6v6" />
+                  <path d="M20 10h-6V4" />
+                  <path d="M14 10l7-7" />
+                  <path d="M3 21l7-7" />
+                </svg>
+              </div>
+              <h2>Batch Compress</h2>
+              <p>Resize and optimize massive folders of photography with intelligent engine processing.</p>
             </div>
-          </div>
+          </button>
 
-          <button id="btnStartExtract" class="btn-primary btn-large mt-30" disabled>Extract Files</button>
-
-          <div class="progress-container mt-20 hidden" id="extractProgressContainer">
-            <div class="progress-bar">
-              <div class="progress-fill" id="extractProgressFill"></div>
+          <button class="module-card secondary-card" id="btnOpenMerge">
+            <div class="card-content">
+              <div class="icon-wrapper">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="4" width="18" height="4" rx="1" ry="1" />
+                  <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
+                  <line x1="10" y1="12" x2="14" y2="12" />
+                </svg>
+              </div>
+              <h2>Merge ZIPs</h2>
+              <p>Combine and extract multiple ZIP archives safely while skipping duplicates.</p>
             </div>
-            <div class="progress-text mt-10" id="extractProgressText">0 / 0 files copied</div>
-          </div>
-        </section>
+          </button>
+        </div>
 
-        <!-- Compress View -->
-        <section id="compress" class="view">
-          <div class="header-container">
-            <h2>Batch Compression</h2>
-          </div>
+        <p class="bottom-line mt-30">Manage, organize, and process thousands of photos with ease. Extract, compress, and
+          structure your files into a clean, delivery-ready workflow all in one place.</p>
+      </section>
 
-          <div class="input-group mt-20">
-            <label>Input Folder (All Images)</label>
-            <div class="browse-row">
-              <input type="text" id="compressSourceInput" readonly placeholder="Select a folder to compress...">
-              <button id="btnBrowseCompressSource" class="btn-primary">Browse</button>
-            </div>
-            <div class="hint mt-10" id="compressEstimationText" style="color: var(--text-muted); font-size: 13px;">Estimated Content: Select a folder...</div>
-          </div>
+      <section id="extract" class="view">
+        <div class="header-container">
+          <button class="btn-back" data-target="landing">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 12H5m0 0l7 7m-7-7l7-7" />
+            </svg>
+          </button>
+          <h2>Extract from List</h2>
+        </div>
 
-          <div class="mt-30">
-            <label style="font-size: 14px; font-weight: 500; color: var(--text-main);">Compression Mode</label>
-            <div class="radio-group mt-10">
-              <label class="radio-card"><input type="radio" name="compMode" value="high"> High (Width 1080px, Qual 70)</label>
-              <label class="radio-card"><input type="radio" name="compMode" value="medium" checked> Medium (Long edge 2560px, Qual 75)</label>
-              <label class="radio-card"><input type="radio" name="compMode" value="low"> Low (Long edge 4000px, Qual 90)</label>
-              <label class="radio-card"><input type="radio" name="compMode" value="custom"> Custom</label>
-            </div>
+        <div class="input-group mt-20">
+          <label>Source (Folder or Files)</label>
+          <div class="browse-row">
+            <input type="text" id="extractSourceInput" readonly placeholder="Select folder or images...">
+            <button id="btnBrowseExtractSource" class="btn-primary">Browse</button>
           </div>
+        </div>
 
-          <div id="customSettingsBlock" class="custom-settings mt-20 hidden">
-            <div class="input-group">
-              <label>Resize Based On</label>
-              <select id="customResizeAxis" class="select-input">
+        <div class="input-group mt-20">
+          <label>Filenames to Extract</label>
+          <textarea id="extractListInput" placeholder="DSC01107, DSC01116, DSC01122..."></textarea>
+          <div class="hint" style="color: var(--text-muted); font-size: 13px; margin-top: 5px;">Supports commas, spaces,
+            and line breaks.</div>
+        </div>
+
+        <div class="input-group mt-20">
+          <label>Output Folder</label>
+          <div class="browse-row">
+            <input type="text" id="extractOutputInput" readonly placeholder="Select destination folder...">
+            <button id="btnBrowseExtractOutput" class="btn-primary">Browse</button>
+          </div>
+        </div>
+
+        <button id="btnStartExtract" class="btn-primary btn-large mt-30" disabled>Extract Files</button>
+
+        <div class="progress-container mt-20 hidden" id="extractProgressContainer">
+          <div class="progress-bar">
+            <div class="progress-fill" id="extractProgressFill"></div>
+          </div>
+          <div class="progress-text mt-10" id="extractProgressText">0 / 0 files copied</div>
+          <button id="btnCancelExtract" class="btn-cancel mt-10">Cancel Process</button>
+        </div>
+      </section>
+
+      <!-- Compress View -->
+      <section id="compress" class="view">
+        <div class="header-container">
+          <button class="btn-back" data-target="landing">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 12H5m0 0l7 7m-7-7l7-7" />
+            </svg>
+          </button>
+          <h2>Batch Compress</h2>
+        </div>
+
+        <div class="input-group mt-20">
+          <label>Source (Folder or Files)</label>
+          <div class="browse-row">
+            <input type="text" id="compressSourceInput" readonly placeholder="Select folder or images...">
+            <button id="btnBrowseCompressSource" class="btn-primary">Browse</button>
+          </div>
+          <div class="hint mt-10" id="compressEstimationText" style="color: var(--text-muted); font-size: 13px;">
+            Estimated Content: Select valid images...</div>
+        </div>
+
+        <div class="mt-30">
+          <label style="font-size: 14px; font-weight: 500; color: var(--text-main);">Compression Mode</label>
+          <div class="radio-group mt-10">
+            <label class="radio-card"><input type="radio" name="compMode" value="high"> High (Width 1080px, Qual
+              70)</label>
+            <label class="radio-card"><input type="radio" name="compMode" value="medium" checked> Medium (Long edge
+              2560px, Qual 75)</label>
+            <label class="radio-card"><input type="radio" name="compMode" value="low"> Low (Long edge 4000px, Qual
+              90)</label>
+            <label class="radio-card"><input type="radio" name="compMode" value="custom"> Custom</label>
+          </div>
+        </div>
+
+        <div id="customSettingsBlock" class="custom-settings mt-20 hidden">
+          <div class="settings-box compact-row">
+            <div class="input-item">
+              <label>Mode</label>
+              <select id="customResizeAxis" class="select-input" style="width: 120px;">
                 <option value="long">Long Edge</option>
                 <option value="short">Short Edge</option>
                 <option value="width">Width</option>
               </select>
             </div>
-            <div class="slider-row mt-10">
-              <label>Size (px): <span id="valSize">2048</span></label>
-              <input type="range" id="customSize" min="1080" max="4000" value="2048">
+            <div class="input-item">
+              <label>Size (px)</label>
+              <input type="number" id="customSize" class="select-input" value="2048" style="width: 90px;">
             </div>
-            <div class="slider-row mt-10">
-              <label>Quality: <span id="valQual">80</span></label>
-              <input type="range" id="customQual" min="60" max="95" value="80">
-            </div>
-          </div>
-
-          <div class="input-group mt-30">
-            <label>Output Folder</label>
-            <div class="browse-row">
-              <input type="text" id="compressOutputInput" readonly placeholder="Select destination folder...">
-              <button id="btnBrowseCompressOutput" class="btn-primary">Browse</button>
+            <div class="input-item">
+              <label>Quality (%)</label>
+              <input type="number" id="customQual" class="select-input" value="80" min="1" max="100"
+                style="width: 80px;">
             </div>
           </div>
+        </div>
 
-          <button id="btnStartCompress" class="btn-primary btn-large mt-30" disabled>Start Compression</button>
-
-          <div class="progress-container mt-20 hidden" id="compProgressContainer">
-            <div class="progress-bar">
-              <div class="progress-fill" id="compProgressFill"></div>
-            </div>
-            <div class="progress-text mt-10" id="compProgressText">Initializing...</div>
+        <div class="input-group mt-30">
+          <label>Output Folder</label>
+          <div class="browse-row">
+            <input type="text" id="compressOutputInput" readonly placeholder="Select destination folder...">
+            <button id="btnBrowseCompressOutput" class="btn-primary">Browse</button>
           </div>
-        </section>
+        </div>
 
-        <!-- Merge View -->
-        <section id="merge" class="view">
-          <div class="header-container">
-            <h2>Merge & Extract ZIPs</h2>
-          </div>
-          
-          <div class="input-group mt-20">
-            <label>Folder containing split ZIPs</label>
-            <div class="browse-row">
-              <input type="text" id="mergeSourceInput" readonly placeholder="Select folder with Archive.zip, Archive(1).zip...">
-              <button id="btnBrowseMergeSource" class="btn-primary">Browse</button>
-            </div>
-            <div class="hint mt-10" id="mergeEstimationText" style="color: var(--text-muted); font-size: 13px;">Estimated Content: Select a folder...</div>
-          </div>
+        <button id="btnStartCompress" class="btn-primary btn-large mt-30" disabled>Start Compression</button>
 
-          <div class="input-group mt-20">
-             <label>Options</label>
-             <div class="checkbox-group mt-10">
-                <label class="checkbox-label"><input type="checkbox" id="mergeSkipDuplicates" checked> Skip duplicate files</label>
-                <label class="checkbox-label"><input type="checkbox" id="mergeNormalizeRoot" checked> Merge structure (remove redundant root folders)</label>
-             </div>
+        <div class="progress-container mt-20 hidden" id="compProgressContainer">
+          <div class="progress-bar">
+            <div class="progress-fill" id="compProgressFill"></div>
           </div>
+          <div class="progress-text mt-10" id="compProgressText">Initializing...</div>
+          <button id="btnCancelCompress" class="btn-cancel mt-10">Cancel Process</button>
+        </div>
+      </section>
 
-          <div class="input-group mt-30">
-            <label>Output Folder</label>
-            <div class="browse-row">
-              <input type="text" id="mergeOutputInput" readonly placeholder="Select destination folder...">
-              <button id="btnBrowseMergeOutput" class="btn-primary">Browse</button>
-            </div>
+      <!-- Merge View -->
+      <section id="merge" class="view">
+        <div class="header-container">
+          <button class="btn-back" data-target="landing">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 12H5m0 0l7 7m-7-7l7-7" />
+            </svg>
+          </button>
+          <h2>Merge & Extract ZIPs</h2>
+        </div>
+
+        <div class="input-group mt-20">
+          <label>Source (Folder or ZIP Files)</label>
+          <div class="browse-row">
+            <input type="text" id="mergeSourceInput" readonly placeholder="Select folder or .zip files...">
+            <button id="btnBrowseMergeSource" class="btn-primary">Browse</button>
           </div>
+          <div class="hint mt-10" id="mergeEstimationText" style="color: var(--text-muted); font-size: 13px;">Estimated
+            Content: Select a folder...</div>
+        </div>
 
-          <button id="btnStartMerge" class="btn-primary btn-large mt-30" disabled>Start Merge</button>
-
-          <div class="progress-container mt-20 hidden" id="mergeProgressContainer">
-            <div class="progress-bar">
-              <div class="progress-fill" id="mergeProgressFill"></div>
-            </div>
-            <div class="progress-text mt-10" id="mergeProgressText">Initializing...</div>
+        <div class="input-group mt-20">
+          <label>Options</label>
+          <div class="checkbox-group mt-10">
+            <label class="checkbox-label"><input type="checkbox" id="mergeSkipDuplicates" checked> Skip duplicate
+              files</label>
+            <label class="checkbox-label"><input type="checkbox" id="mergeNormalizeRoot" checked> Merge structure
+              (remove redundant root folders)</label>
           </div>
-        </section>
-      </main>
-    </div>
-  </body>
+        </div>
+
+        <div class="input-group mt-30">
+          <label>Output Folder</label>
+          <div class="browse-row">
+            <input type="text" id="mergeOutputInput" readonly placeholder="Select destination folder...">
+            <button id="btnBrowseMergeOutput" class="btn-primary">Browse</button>
+          </div>
+        </div>
+
+        <button id="btnStartMerge" class="btn-primary btn-large mt-30" disabled>Start Merge</button>
+
+        <div class="progress-container mt-20 hidden" id="mergeProgressContainer">
+          <div class="progress-bar">
+            <div class="progress-fill" id="mergeProgressFill"></div>
+          </div>
+          <div class="progress-text mt-10" id="mergeProgressText">Initializing...</div>
+          <button id="btnCancelMerge" class="btn-cancel mt-10">Cancel Process</button>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+
 </html>

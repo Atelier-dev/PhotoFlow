@@ -1,192 +1,310 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
-import path from 'path'
-import fs from 'fs'
-import yauzl from 'yauzl'
-import { fileURLToPath } from 'url'
+const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const path = require('path')
+const fs = require('fs')
+const yauzl = require('yauzl')
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-process.env.DIST = path.join(__dirname, '../dist')
-process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : path.join(process.env.DIST, '../public')
+let win
 
-let win;
+const activeProcesses = {
+  extract: false,
+  compress: false,
+  merge: false
+}
 
-// Helper: Recursive directory search
-async function scanDirectory(dir, fileMap = new Map()) {
-  const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-  for (let entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await scanDirectory(fullPath, fileMap);
-    } else if (entry.isFile() && entry.name.toUpperCase().endsWith('.JPG')) {
-      const baseName = path.parse(entry.name).name.toUpperCase();
-      if (!fileMap.has(baseName)) {
-        fileMap.set(baseName, []);
+async function scanInputs(inputs, fileMap = new Map(), baseDir = null) {
+  const inputList = Array.isArray(inputs) ? inputs : [inputs]
+  
+  for (const inputPath of inputList) {
+    try {
+      const stats = await fs.promises.stat(inputPath)
+      if (stats.isDirectory()) {
+        const entries = await fs.promises.readdir(inputPath, { withFileTypes: true })
+        const childPaths = entries.map(e => path.join(inputPath, e.name))
+        await scanInputs(childPaths, fileMap, baseDir || inputPath)
+      } else if (stats.isFile()) {
+        const ext = path.extname(inputPath).toLowerCase()
+        if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.tiff', '.tif', '.avif', '.bmp', '.heic', '.heif'].includes(ext)) {
+          const baseName = path.parse(inputPath).name.toUpperCase()
+          if (!fileMap.has(baseName)) {
+            fileMap.set(baseName, [])
+          }
+          const relPath = baseDir ? path.relative(baseDir, inputPath) : path.basename(inputPath)
+          fileMap.get(baseName).push({ fullPath: inputPath, relPath })
+        }
       }
-      fileMap.get(baseName).push(fullPath);
+    } catch (e) {
+      console.error(`Error scanning ${inputPath}:`, e)
     }
   }
-  return fileMap;
+  return fileMap
 }
 
 function createWindow() {
+  const distPath = app.isPackaged ? path.join(app.getAppPath(), 'dist') : path.join(__dirname, '../dist')
+  process.env.DIST = distPath
+
   win = new BrowserWindow({
-    width: 1000,
+    width: 1200,
     height: 800,
-    webPreferences: {
-      preload: path.join(app.getAppPath(), 'dist-electron', 'preload.js'),
-    },
-    // Dark mode aesthetic base
-    backgroundColor: '#0f172a',
     titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#0f172a',
-      symbolColor: '#74b9ff'
-    }
+    trafficLightPosition: { x: 15, y: 15 },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
   })
+
+  // Help diagnose if any load fails
+  win.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    dialog.showErrorBox('Load Failure', `Failed to load: ${errorDescription} (${errorCode})\nURL: ${validatedURL}`);
+  });
 
   if (process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL)
   } else {
-    // Rigidly loads dist index inside production ASAR bundles
-    win.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'))
+    // Standard relative path inside asar/dist-electron -> asar/dist
+    const indexPath = path.join(__dirname, '..', 'dist', 'index.html')
+    win.loadFile(indexPath).catch(err => {
+      dialog.showErrorBox('File Load Error', `Could not load index.html from: ${indexPath}\nError: ${err.message}`);
+    });
   }
 }
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-    win = null
-  }
-})
-
 app.whenReady().then(() => {
+  // IPC Handlers
   ipcMain.handle('dialog:selectFolder', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-      properties: ['openDirectory']
+      properties: ['openDirectory', 'createDirectory']
     })
     if (canceled) return null
     return filePaths[0]
   })
 
-  ipcMain.handle('extract:start', async (event, data) => {
-    const { source, output, listText } = data;
+  ipcMain.handle('dialog:selectSource', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      properties: ['openFile', 'openDirectory', 'multiSelections'],
+      filters: [
+        { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'tiff', 'tif', 'avif', 'bmp', 'heic', 'heif'] }
+      ]
+    })
+    if (canceled) return null
+    return filePaths
+  })
+
+  ipcMain.handle('cancel:process', async (event, moduleName) => {
+    activeProcesses[moduleName] = false
+    console.log(`[CANCEL] Process ${moduleName} signal received.`)
+    return { success: true }
+  })
+
+  ipcMain.handle('dialog:selectMergeSource', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      properties: ['openFile', 'openDirectory', 'multiSelections'],
+      filters: [
+        { name: 'ZIP Archives', extensions: ['zip'] }
+      ]
+    })
+    if (canceled) return null
+    return filePaths
+  })
+
+  ipcMain.handle('extract:start', async (event, { source, output, listText }) => {
+    const fileNames = listText.split(/[\n,;]+/).map(s => s.trim().toUpperCase()).filter(s => s.length > 0)
+    const fileMap = await scanInputs(source)
+    
+    let copiedCount = 0
+    let totalTargets = fileNames.length
+    const failedFiles = []
+
+    activeProcesses.extract = true
     try {
-      event.sender.send('extract:progress', { current: 0, total: 1, init: true, message: 'Scanning files...' });
-      
-      const rawNames = listText.split(/[,\s\n]+/).filter(Boolean);
-      const targetNames = rawNames.map(name => {
-        let n = name.toUpperCase();
-        if (n.endsWith('.JPG')) n = n.slice(0, -4);
-        return n;
-      });
-
-      const fileMap = await scanDirectory(source);
-      let matchedPaths = [];
-      for (const name of targetNames) {
-        if (fileMap.has(name)) {
-          matchedPaths.push(...fileMap.get(name));
+      for (let i = 0; i < fileNames.length; i++) {
+        if (!activeProcesses.extract) {
+           win.webContents.send('extract:error', 'Process canceled by user')
+           return { canceled: true }
         }
-      }
-
-      let copiedCount = 0;
-      const total = matchedPaths.length;
-      if (total === 0) {
-         event.sender.send('extract:error', 'No matching .JPG files found.');
-         return;
-      }
-
-      await fs.promises.mkdir(output, { recursive: true });
-
-      for (const srcPath of matchedPaths) {
-        const relPath = path.relative(source, srcPath);
-        const destPath = path.join(output, relPath);
+        const targetName = fileNames[i]
+        const matches = fileMap.get(targetName)
         
-        await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
-        await fs.promises.copyFile(srcPath, destPath);
-        
-        copiedCount++;
-        event.sender.send('extract:progress', { current: copiedCount, total, init: false });
+        if (matches) {
+          for (const fileObj of matches) {
+             const { fullPath, relPath } = fileObj
+             try {
+                const dest = path.join(output, relPath)
+                await fs.promises.mkdir(path.dirname(dest), { recursive: true })
+                await fs.promises.copyFile(fullPath, dest)
+                copiedCount++
+             } catch (e) {
+                failedFiles.push({ fileName: path.basename(fullPath), error: e.message })
+             }
+          }
+        } else {
+          failedFiles.push({ fileName: targetName, error: 'File name not found in source directory' })
+        }
+        win.webContents.send('extract:progress', { current: i + 1, total: totalTargets })
       }
-
-      event.sender.send('extract:complete', { success: true, copiedCount, total });
-    } catch (err) {
-      console.error(err);
-      event.sender.send('extract:error', err.message);
+      win.webContents.send('extract:complete', { copiedCount, failedFiles })
+      return { success: true }
+    } finally {
+      activeProcesses.extract = false
     }
   })
 
   ipcMain.handle('compress:scan', async (event, source) => {
-    try {
-      const fileMap = await scanDirectory(source);
-      let totalSize = 0;
-      let count = 0;
-      for (const [basename, paths] of fileMap.entries()) {
-        for (const p of paths) {
-          const stats = await fs.promises.stat(p);
-          totalSize += stats.size;
-          count++;
-        }
+    const fileMap = await scanInputs(source)
+    let count = 0
+    let totalSize = 0
+    for (const fileObjects of fileMap.values()) {
+      for (const obj of fileObjects) {
+        const s = await fs.promises.stat(obj.fullPath)
+        totalSize += s.size
+        count++
       }
-      return { count, avgSize: count > 0 ? totalSize / count : 0, totalSize };
-    } catch (err) {
-      console.error(err);
-      throw err;
     }
-  });
+    return { count, totalSize }
+  })
 
-  ipcMain.handle('compress:start', async (event, data) => {
-    const { source, output, settings } = data;
+  ipcMain.handle('compress:start', async (event, { source, output, settings }) => {
+    const sharp = require('sharp')
+    const fileMap = await scanInputs(source)
+    const allFiles = []
+    for (const fileObjects of fileMap.values()) {
+        allFiles.push(...fileObjects)
+    }
+
+    const numCores = require('os').cpus().length || 4
+    const concurrency = Math.max(1, numCores - 1)
+    console.log(`[COMPRESS] Starting multi-threaded compression with ${concurrency} parallel workers for ${allFiles.length} files.\nUsing high-quality mozjpeg.\n`)
+
+    let processed = 0
+    let failed = 0
+    const failedFiles = []
+    activeProcesses.compress = true
+
+    const fileQueue = [...allFiles]
+
+    async function worker() {
+      while (fileQueue.length > 0 && activeProcesses.compress) {
+        const fileObj = fileQueue.shift()
+        if (!fileObj) break
+        const { fullPath, relPath } = fileObj
+        
+        const fileName = path.basename(fullPath)
+        try {
+          const outPath = path.join(output, relPath)
+          await fs.promises.mkdir(path.dirname(outPath), { recursive: true })
+
+          let pipeline = sharp(fullPath).rotate()
+          
+          if (settings.axis === 'width') {
+            pipeline = pipeline.resize({ width: settings.size })
+          } else if (settings.axis === 'height') {
+            pipeline = pipeline.resize({ height: settings.size })
+          } else if (settings.axis === 'short') {
+            pipeline = pipeline.resize(settings.size, settings.size, { fit: 'outside' })
+          } else {
+            pipeline = pipeline.resize(settings.size, settings.size, { fit: 'inside' })
+          }
+
+          // Preserve mozjpeg: true for maximum high-quality compression savings
+          await pipeline.jpeg({ quality: settings.quality, mozjpeg: true }).toFile(outPath)
+          processed++
+        } catch (e) {
+          failed++
+          failedFiles.push({ fileName, error: e.message })
+          console.error('Sharp error:', e)
+          win.webContents.send('compress:progress', { message: `FAILED: ${fileName} - ${e.message}` })
+        }
+        
+        win.webContents.send('compress:progress', { current: processed, total: allFiles.length })
+      }
+    }
+
     try {
-      event.sender.send('compress:progress', { current: 0, total: 1, message: 'Mapping files...' });
-      const fileMap = await scanDirectory(source);
-      let matchedPaths = [];
-      for (const [basename, paths] of fileMap.entries()) {
-        matchedPaths.push(...paths);
+      const workers = []
+      for (let w = 0; w < concurrency; w++) {
+        workers.push(worker())
+      }
+      await Promise.all(workers)
+
+      if (!activeProcesses.compress) {
+         win.webContents.send('compress:error', 'Process canceled by user')
+         return { canceled: true }
+      }
+
+      win.webContents.send('compress:complete', { processed, total: allFiles.length, failed, failedFiles })
+      return { success: true }
+    } finally {
+      activeProcesses.compress = false
+    }
+  })
+
+  ipcMain.handle('merge:scan', async (event, source) => {
+    try {
+      const sourceList = Array.isArray(source) ? source : [source]
+      const zipPaths = []
+      for (const s of sourceList) {
+          const stat = await fs.promises.stat(s)
+          if (stat.isDirectory()) {
+              const files = await fs.promises.readdir(s)
+              zipPaths.push(...files.filter(f => f.toLowerCase().endsWith('.zip')).map(f => path.join(s, f)))
+          } else if (s.toLowerCase().endsWith('.zip')) {
+              zipPaths.push(s)
+          }
       }
       
-      const total = matchedPaths.length;
-      if (total === 0) {
-        event.sender.send('compress:error', 'No .JPG files found to compress.');
+      // Natural sort
+      zipPaths.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+      
+      return { count: zipPaths.length, files: zipPaths }
+    } catch (err) {
+      console.error('Scan error:', err)
+      throw err
+    }
+  })
+
+  // Self-repair function to truncate trailing junk bytes added to ZIP files (e.g. from downloads, split-merges, etc.)
+  async function fixZipIfHasExtraBytes(filePath) {
+    let handle;
+    try {
+      handle = await fs.promises.open(filePath, 'r+');
+      const stat = await handle.stat();
+      const fileSize = stat.size;
+      if (fileSize < 22) return; // Too small to be a zip
+      
+      const readLength = Math.min(fileSize, 65536 + 22);
+      const buffer = Buffer.alloc(readLength);
+      await handle.read(buffer, 0, readLength, fileSize - readLength);
+      
+      // Search backwards for the EOCD signature: 0x50, 0x4b, 0x05, 0x06
+      let eocdOffset = -1;
+      for (let i = readLength - 22; i >= 0; i--) {
+        if (buffer[i] === 0x50 && buffer[i+1] === 0x4b && buffer[i+2] === 0x05 && buffer[i+3] === 0x06) {
+          eocdOffset = i;
+          break;
+        }
+      }
+      
+      if (eocdOffset === -1) {
         return;
       }
       
-      await fs.promises.mkdir(output, { recursive: true });
+      const commentLength = buffer.readUInt16LE(eocdOffset + 20);
+      const actualEocdOffsetInFile = fileSize - readLength + eocdOffset;
+      const expectedFileSize = actualEocdOffsetInFile + 22 + commentLength;
       
-      const sharp = (await import('sharp')).default;
-      let processed = 0;
-
-      for (const srcPath of matchedPaths) {
-         const relPath = path.relative(source, srcPath);
-         const destPath = path.join(output, relPath);
-         await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
-         
-         const sharpInstance = sharp(srcPath);
-         const metadata = await sharpInstance.metadata();
-         const isLandscape = (metadata.width || 0) >= (metadata.height || 0);
-
-         let resizeOpts = { withoutEnlargement: true, fit: 'inside' };
-         if (settings.axis === 'width') resizeOpts.width = settings.size;
-         else if (settings.axis === 'long') {
-           if (isLandscape) resizeOpts.width = settings.size; else resizeOpts.height = settings.size;
-         } else if (settings.axis === 'short') {
-           if (isLandscape) resizeOpts.height = settings.size; else resizeOpts.width = settings.size;
-         }
-
-         await sharpInstance
-            .resize(resizeOpts)
-            .jpeg({ quality: settings.quality, mozjpeg: true })
-            .toFile(destPath);
-            
-         processed++;
-         event.sender.send('compress:progress', { current: processed, total });
+      if (fileSize > expectedFileSize) {
+        const extraBytes = fileSize - expectedFileSize;
+        console.log(`[ZIP REPAIR] Found ${extraBytes} extra bytes at the end of ${path.basename(filePath)}. Truncating to ${expectedFileSize} bytes.`);
+        await handle.truncate(expectedFileSize);
       }
-
-      event.sender.send('compress:complete', { success: true, processed, total });
     } catch (err) {
-      console.error(err);
-      event.sender.send('compress:error', err.message);
+      console.error(`[ZIP REPAIR] Error inspecting/repairing ${path.basename(filePath)}:`, err);
+    } finally {
+      if (handle) await handle.close();
     }
-  });
+  }
 
   // Helper for yauzl promisification
   function openZip(zipPath) {
@@ -198,123 +316,145 @@ app.whenReady().then(() => {
     });
   }
 
-  ipcMain.handle('merge:scan', async (event, source) => {
+  ipcMain.handle('merge:start', async (event, { source, output, skipDuplicates, normalizeRoot }) => {
     try {
-      const entries = await fs.promises.readdir(source, { withFileTypes: true });
-      let zipFiles = entries.filter(e => e.isFile() && e.name.toLowerCase().endsWith('.zip')).map(e => e.name);
-      
-      // Natural sort: Archive.zip, Archive(1).zip
-      zipFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-      
-      return { count: zipFiles.length, files: zipFiles };
-    } catch (err) {
-      console.error(err);
-      throw err;
-    }
-  });
-
-  ipcMain.handle('merge:start', async (event, data) => {
-    const { source, output, skipDuplicates, normalizeRoot } = data;
-    try {
-      let entries = await fs.promises.readdir(source, { withFileTypes: true });
-      let zipFiles = entries.filter(e => e.isFile() && e.name.toLowerCase().endsWith('.zip')).map(e => e.name);
-      zipFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-
-      if (zipFiles.length === 0) {
-        event.sender.send('merge:error', 'No ZIP files found.');
-        return;
+      const sourceList = Array.isArray(source) ? source : [source]
+      const zipPaths = []
+      for (const s of sourceList) {
+          const stat = await fs.promises.stat(s)
+          if (stat.isDirectory()) {
+             const files = await fs.promises.readdir(s)
+             zipPaths.push(...files.filter(f => f.toLowerCase().endsWith('.zip')).map(f => path.join(s, f)))
+          } else if (s.toLowerCase().endsWith('.zip')) {
+             zipPaths.push(s)
+          }
       }
 
-      await fs.promises.mkdir(output, { recursive: true });
+      // Natural sort
+      zipPaths.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
 
-      let zipIndex = 0;
-      let totalExtracted = 0;
+      if (zipPaths.length === 0) {
+         win.webContents.send('merge:error', 'No ZIP files found.')
+         return
+      }
 
-      for (const zipName of zipFiles) {
-        zipIndex++;
-        const zipPath = path.join(source, zipName);
-        event.sender.send('merge:progress', { 
-           message: `Extracting ZIP ${zipIndex} / ${zipFiles.length}: ${zipName}`,
-           zipIndex, zipTotal: zipFiles.length, extracted: totalExtracted
-        });
+      await fs.promises.mkdir(output, { recursive: true })
 
-        const zipfile = await openZip(zipPath);
+      let totalExtracted = 0
+      activeProcesses.merge = true
+      for (let i = 0; i < zipPaths.length; i++) {
+          if (!activeProcesses.merge) {
+             throw new Error('Process canceled by user')
+          }
+          const zp = zipPaths[i]
+        win.webContents.send('merge:progress', {
+           message: `Extracting ZIP ${i + 1} / ${zipPaths.length}: ${path.basename(zp)} (${totalExtracted} total files)`,
+           zipIndex: i, zipTotal: zipPaths.length, extracted: totalExtracted
+        })
+        
+        await fixZipIfHasExtraBytes(zp)
+        const zipfile = await openZip(zp)
 
         await new Promise((resolve, reject) => {
-          zipfile.readEntry();
-          zipfile.on("entry", async (entry) => {
-            if (/\/$/.test(entry.fileName)) {
-               zipfile.readEntry(); // Skip directory entries, we auto mkDirs based on file paths
-               return;
-            }
-
-            let extractPath = entry.fileName;
-            if (normalizeRoot) {
-               const parts = extractPath.split('/');
-               if (parts.length > 1) {
-                  parts.shift(); // Remove top level folder e.g "Archive/"
-                  extractPath = parts.join('/');
-               }
-            }
-
-            let finalDestPath = path.join(output, extractPath);
-
+          zipfile.readEntry()
+          
+          zipfile.on('entry', async (entry) => {
             try {
-              if (skipDuplicates) {
-                 try {
-                   await fs.promises.access(finalDestPath);
-                   zipfile.readEntry(); // File exists, skip
-                   return;
-                 } catch (err) { /* does not exist, proceed */ }
-              } else {
-                 let suffix = 1;
-                 const ext = path.extname(finalDestPath);
-                 const base = path.parse(finalDestPath).name;
-                 const dir = path.dirname(finalDestPath);
-                 let checkPath = finalDestPath;
-                 while(true) {
-                   try {
-                     await fs.promises.access(checkPath);
-                     checkPath = path.join(dir, `${base}(${suffix})${ext}`);
-                     suffix++;
-                   } catch(e) { break; } 
-                 }
-                 finalDestPath = checkPath;
+              if (/\/$/.test(entry.fileName)) {
+                zipfile.readEntry()
+                return
               }
 
-              await fs.promises.mkdir(path.dirname(finalDestPath), { recursive: true });
+              let targetSubPath = entry.fileName
+              if (normalizeRoot) {
+                const parts = targetSubPath.split('/')
+                if (parts.length > 1) {
+                   parts.shift() // Remove top level folder e.g "Archive/"
+                   targetSubPath = parts.join('/')
+                }
+              }
 
+              let finalDestPath = path.join(output, targetSubPath)
+
+              if (skipDuplicates) {
+                 try {
+                   await fs.promises.access(finalDestPath)
+                   zipfile.readEntry() // File exists, skip
+                   return
+                 } catch (err) { /* does not exist, proceed */ }
+              } else {
+                 let suffix = 1
+                 const ext = path.extname(finalDestPath)
+                 const base = path.parse(finalDestPath).name
+                 const dir = path.dirname(finalDestPath)
+                 let checkPath = finalDestPath
+                 while (true) {
+                   try {
+                     await fs.promises.access(checkPath)
+                     checkPath = path.join(dir, `${base}(${suffix})${ext}`)
+                     suffix++
+                   } catch(e) { break } 
+                 }
+                 finalDestPath = checkPath
+              }
+
+              await fs.promises.mkdir(path.dirname(finalDestPath), { recursive: true })
+              
               zipfile.openReadStream(entry, (err, readStream) => {
-                if (err) { reject(err); return; }
-                const writeStream = fs.createWriteStream(finalDestPath);
-                readStream.pipe(writeStream);
-                writeStream.on("close", () => {
-                   totalExtracted++;
-                   if (totalExtracted % 15 === 0) { // Throttle IPC
-                     event.sender.send('merge:progress', {
-                       message: `Extracting ZIP ${zipIndex} / ${zipFiles.length} (${totalExtracted} total files)`,
-                       zipIndex, zipTotal: zipFiles.length, extracted: totalExtracted
-                     });
-                   }
-                   zipfile.readEntry();
-                });
-                writeStream.on("error", reject);
-              });
+                 if (err) { reject(err); return; }
+                 
+                 const writeStream = fs.createWriteStream(finalDestPath)
+                 
+                 readStream.on('error', (rErr) => {
+                    writeStream.destroy()
+                    reject(rErr)
+                 })
+                 
+                 writeStream.on('error', (wErr) => {
+                    readStream.destroy()
+                    reject(wErr)
+                 })
+                 
+                 readStream.pipe(writeStream)
+                 
+                 writeStream.on('close', () => {
+                    totalExtracted++
+                    if (totalExtracted % 15 === 0) { // Throttle IPC
+                      win.webContents.send('merge:progress', {
+                        message: `Extracting ZIP ${i + 1} / ${zipPaths.length} (${totalExtracted} total files)`,
+                        zipIndex: i, zipTotal: zipPaths.length, extracted: totalExtracted
+                      })
+                    }
+                    zipfile.readEntry()
+                 })
+              })
             } catch (err) {
-              reject(err);
+              reject(err)
             }
-          });
-          zipfile.on("end", resolve);
-          zipfile.on("error", reject);
-        });
+          })
+
+          zipfile.on('end', () => resolve())
+          zipfile.on('error', (zErr) => reject(zErr))
+        })
       }
-
-      event.sender.send('merge:complete', { success: true, totalExtracted });
+      win.webContents.send('merge:complete', { totalExtracted })
+      return { success: true }
     } catch (err) {
-       console.error(err);
-       event.sender.send('merge:error', err.message);
+      console.error('Merge error:', err)
+      win.webContents.send('merge:error', err.message)
+    } finally {
+      activeProcesses.merge = false
     }
-  });
+  })
 
+  
   createWindow()
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
 })
