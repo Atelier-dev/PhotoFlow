@@ -5,6 +5,12 @@ const yauzl = require('yauzl')
 
 let win
 
+// macOS writes hidden "._name" AppleDouble companions (plus .DS_Store, .Trashes, etc.)
+// on exFAT/FAT/network drives. They carry real image extensions but aren't images.
+function isHiddenEntry(name) {
+  return name.startsWith('.')
+}
+
 const activeProcesses = {
   extract: false,
   compress: false,
@@ -19,9 +25,9 @@ async function scanInputs(inputs, fileMap = new Map(), baseDir = null) {
       const stats = await fs.promises.stat(inputPath)
       if (stats.isDirectory()) {
         const entries = await fs.promises.readdir(inputPath, { withFileTypes: true })
-        const childPaths = entries.map(e => path.join(inputPath, e.name))
+        const childPaths = entries.filter(e => !isHiddenEntry(e.name)).map(e => path.join(inputPath, e.name))
         await scanInputs(childPaths, fileMap, baseDir || inputPath)
-      } else if (stats.isFile()) {
+      } else if (stats.isFile() && !isHiddenEntry(path.basename(inputPath))) {
         const ext = path.extname(inputPath).toLowerCase()
         if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.tiff', '.tif', '.avif', '.bmp', '.heic', '.heif'].includes(ext)) {
           const baseName = path.parse(inputPath).name.toUpperCase()
@@ -217,7 +223,7 @@ app.whenReady().then(() => {
           win.webContents.send('compress:progress', { message: `FAILED: ${fileName} - ${e.message}` })
         }
         
-        win.webContents.send('compress:progress', { current: processed, total: allFiles.length })
+        win.webContents.send('compress:progress', { current: processed + failed, total: allFiles.length })
       }
     }
 
@@ -248,7 +254,7 @@ app.whenReady().then(() => {
           const stat = await fs.promises.stat(s)
           if (stat.isDirectory()) {
               const files = await fs.promises.readdir(s)
-              zipPaths.push(...files.filter(f => f.toLowerCase().endsWith('.zip')).map(f => path.join(s, f)))
+              zipPaths.push(...files.filter(f => !isHiddenEntry(f) && f.toLowerCase().endsWith('.zip')).map(f => path.join(s, f)))
           } else if (s.toLowerCase().endsWith('.zip')) {
               zipPaths.push(s)
           }
@@ -324,7 +330,7 @@ app.whenReady().then(() => {
           const stat = await fs.promises.stat(s)
           if (stat.isDirectory()) {
              const files = await fs.promises.readdir(s)
-             zipPaths.push(...files.filter(f => f.toLowerCase().endsWith('.zip')).map(f => path.join(s, f)))
+             zipPaths.push(...files.filter(f => !isHiddenEntry(f) && f.toLowerCase().endsWith('.zip')).map(f => path.join(s, f)))
           } else if (s.toLowerCase().endsWith('.zip')) {
              zipPaths.push(s)
           }

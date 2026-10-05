@@ -4,6 +4,14 @@ All notable changes, fixes, and improvements to **Pixiy** are documented in this
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Hidden macOS `._` files counted as photos**: On external/exFAT/network drives macOS creates hidden `._filename.jpg` metadata companions. The scanner treated them as images, doubling the count in Batch Compress (and Extract) and reporting every one as failed. Hidden entries (names starting with `.`) are now skipped in the image scanner and the Merge ZIP folder listing.
+- **Compress progress stalling on failures**: Failed files now advance the progress bar so it reaches 100%.
+
+---
+
 ## [1.0.1] - 2026-05-28
 
 ### Added
