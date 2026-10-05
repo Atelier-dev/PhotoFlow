@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   selectFolder: () => ipcRenderer.invoke('dialog:selectFolder'),
@@ -20,5 +20,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mergeFiles: (data) => ipcRenderer.invoke('merge:start', data),
   onMergeProgress: (callback) => ipcRenderer.on('merge:progress', (_event, value) => callback(value)),
   onMergeComplete: (callback) => ipcRenderer.on('merge:complete', (_event, result) => callback(result)),
-  onMergeError: (callback) => ipcRenderer.on('merge:error', (_event, error) => callback(error))
+  onMergeError: (callback) => ipcRenderer.on('merge:error', (_event, error) => callback(error)),
+
+  getPathForFile: (file) => webUtils.getPathForFile(file),
+  scanPdfSources: (sources) => ipcRenderer.invoke('pdf:scan', sources),
+  getThumbnail: (filePath) => ipcRenderer.invoke('pdf:thumbnail', filePath),
+  selectPdfOutput: () => ipcRenderer.invoke('dialog:savePdf'),
+  showItemInFolder: (filePath) => ipcRenderer.invoke('shell:showItem', filePath),
+  exportPdf: (data) => ipcRenderer.invoke('pdf:start', data),
+  onPdfProgress: (callback) => ipcRenderer.on('pdf:progress', (_event, value) => callback(value)),
+  onPdfComplete: (callback) => ipcRenderer.on('pdf:complete', (_event, result) => callback(result)),
+  onPdfError: (callback) => ipcRenderer.on('pdf:error', (_event, error) => callback(error))
 })

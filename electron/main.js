@@ -1,7 +1,8 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const yauzl = require('yauzl')
+const { JpegPdfWriter } = require('./pdfWriter')
 
 let win
 
@@ -14,7 +15,20 @@ function isHiddenEntry(name) {
 const activeProcesses = {
   extract: false,
   compress: false,
-  merge: false
+  merge: false,
+  pdf: false
+}
+
+// Shared resize rules for Batch Compress and PDF export
+function applyResize(pipeline, settings) {
+  if (settings.axis === 'width') {
+    return pipeline.resize({ width: settings.size })
+  } else if (settings.axis === 'height') {
+    return pipeline.resize({ height: settings.size })
+  } else if (settings.axis === 'short') {
+    return pipeline.resize(settings.size, settings.size, { fit: 'outside' })
+  }
+  return pipeline.resize(settings.size, settings.size, { fit: 'inside' })
 }
 
 async function scanInputs(inputs, fileMap = new Map(), baseDir = null) {
@@ -201,17 +215,7 @@ app.whenReady().then(() => {
           const outPath = path.join(output, relPath)
           await fs.promises.mkdir(path.dirname(outPath), { recursive: true })
 
-          let pipeline = sharp(fullPath).rotate()
-          
-          if (settings.axis === 'width') {
-            pipeline = pipeline.resize({ width: settings.size })
-          } else if (settings.axis === 'height') {
-            pipeline = pipeline.resize({ height: settings.size })
-          } else if (settings.axis === 'short') {
-            pipeline = pipeline.resize(settings.size, settings.size, { fit: 'outside' })
-          } else {
-            pipeline = pipeline.resize(settings.size, settings.size, { fit: 'inside' })
-          }
+          const pipeline = applyResize(sharp(fullPath).rotate(), settings)
 
           // Preserve mozjpeg: true for maximum high-quality compression savings
           await pipeline.jpeg({ quality: settings.quality, mozjpeg: true }).toFile(outPath)
@@ -450,6 +454,118 @@ app.whenReady().then(() => {
       win.webContents.send('merge:error', err.message)
     } finally {
       activeProcesses.merge = false
+    }
+  })
+
+  // --- PDF Presentation ---
+  ipcMain.handle('pdf:scan', async (event, sources) => {
+    const fileMap = await scanInputs(sources)
+    const files = []
+    for (const fileObjects of fileMap.values()) {
+      for (const obj of fileObjects) {
+        try {
+          const s = await fs.promises.stat(obj.fullPath)
+          files.push({ path: obj.fullPath, name: path.basename(obj.fullPath), size: s.size })
+        } catch (e) { /* vanished between scan and stat */ }
+      }
+    }
+    // Natural sort so DSC2 comes before DSC10; the user can reorder afterwards
+    files.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' }))
+    return files
+  })
+
+  ipcMain.handle('pdf:thumbnail', async (event, filePath) => {
+    const sharp = require('sharp')
+    try {
+      const buf = await sharp(filePath).rotate()
+        .resize(320, 320, { fit: 'inside' })
+        .flatten({ background: '#ffffff' })
+        .jpeg({ quality: 70 })
+        .toBuffer()
+      return `data:image/jpeg;base64,${buf.toString('base64')}`
+    } catch (e) {
+      return null
+    }
+  })
+
+  ipcMain.handle('dialog:savePdf', async () => {
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      defaultPath: 'Presentation.pdf',
+      filters: [{ name: 'PDF Document', extensions: ['pdf'] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation']
+    })
+    if (canceled || !filePath) return null
+    return filePath.toLowerCase().endsWith('.pdf') ? filePath : `${filePath}.pdf`
+  })
+
+  ipcMain.handle('shell:showItem', async (event, filePath) => {
+    shell.showItemInFolder(filePath)
+  })
+
+  ipcMain.handle('pdf:start', async (event, { files, output, settings }) => {
+    const sharp = require('sharp')
+    const total = files.length
+    const failedFiles = []
+    const writer = new JpegPdfWriter(output)
+
+    // Encode in parallel but write pages strictly in the user's order.
+    // Only `concurrency` pages are in flight/buffered at once.
+    const concurrency = Math.max(1, (require('os').cpus().length || 4) - 1)
+    const tasks = new Array(total)
+    const encode = async (filePath) => {
+      const { data, info } = await applyResize(sharp(filePath).rotate(), settings)
+        .flatten({ background: '#ffffff' })
+        .jpeg({ quality: settings.quality, mozjpeg: true })
+        .toBuffer({ resolveWithObject: true })
+      return { data, info }
+    }
+    const startTask = (i) => {
+      if (i < total && !tasks[i]) {
+        tasks[i] = encode(files[i]).then(result => ({ result }), error => ({ error }))
+      }
+    }
+
+    activeProcesses.pdf = true
+    try {
+      await writer.open()
+      for (let k = 0; k < concurrency; k++) startTask(k)
+
+      for (let i = 0; i < total; i++) {
+        if (!activeProcesses.pdf) break
+        const outcome = await tasks[i]
+        tasks[i] = null
+        startTask(i + concurrency)
+
+        if (outcome.error) {
+          failedFiles.push({ fileName: path.basename(files[i]), error: outcome.error.message })
+        } else {
+          const { data, info } = outcome.result
+          await writer.addJpegPage(data, info.width, info.height, info.channels)
+        }
+        win.webContents.send('pdf:progress', { current: i + 1, total })
+      }
+
+      if (!activeProcesses.pdf) {
+        await writer.abort()
+        win.webContents.send('pdf:error', 'Process canceled by user')
+        return { canceled: true }
+      }
+
+      if (writer.pageCount === 0) {
+        await writer.abort()
+        win.webContents.send('pdf:complete', { pages: 0, output: null, failedFiles })
+        return { success: false }
+      }
+
+      await writer.close()
+      win.webContents.send('pdf:complete', { pages: writer.pageCount, output, failedFiles })
+      return { success: true }
+    } catch (err) {
+      console.error('PDF export error:', err)
+      await writer.abort()
+      win.webContents.send('pdf:error', err.message)
+    } finally {
+      activeProcesses.pdf = false
     }
   })
 

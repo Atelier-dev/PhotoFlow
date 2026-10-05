@@ -79,6 +79,22 @@
               <p>Combine and extract multiple ZIP archives safely while skipping duplicates.</p>
             </div>
           </button>
+
+          <button class="module-card secondary-card" id="btnOpenPdf">
+            <div class="card-content">
+              <div class="icon-wrapper">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <circle cx="10" cy="13" r="1.5" />
+                  <path d="M20 18l-4-4-7 7" />
+                </svg>
+              </div>
+              <h2>PDF Presentation</h2>
+              <p>Arrange photos in any order and export them as one compressed, uniform PDF.</p>
+            </div>
+          </button>
         </div>
 
         <p class="bottom-line mt-30">Manage, organize, and process thousands of photos with ease. Extract, compress, and
@@ -254,6 +270,98 @@
           </div>
           <div class="progress-text mt-10" id="mergeProgressText">Initializing...</div>
           <button id="btnCancelMerge" class="btn-cancel mt-10">Cancel Process</button>
+        </div>
+      </section>
+
+      <!-- PDF Presentation View -->
+      <section id="pdf" class="view">
+        <div class="header-container">
+          <button class="btn-back" data-target="landing">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 12H5m0 0l7 7m-7-7l7-7" />
+            </svg>
+          </button>
+          <h2>PDF Presentation</h2>
+        </div>
+
+        <div class="input-group mt-20">
+          <label>Pages (Folder or Files)</label>
+          <div class="browse-row">
+            <button id="btnAddPdfPhotos" class="btn-primary">Add Photos</button>
+            <button id="btnSortPdfPhotos" class="btn-secondary" disabled>Sort by Name</button>
+            <button id="btnClearPdfPhotos" class="btn-secondary" disabled>Clear All</button>
+          </div>
+          <div class="hint mt-10" id="pdfEstimationText" style="color: var(--text-muted); font-size: 13px;">
+            Add photos, then drag to set the page order.</div>
+        </div>
+
+        <div class="page-grid mt-20" id="pdfPageGrid">
+          <div class="page-grid-empty" id="pdfPageGridEmpty">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <path d="M21 15l-5-5L5 21" />
+            </svg>
+            <span>Drop photos or folders here</span>
+          </div>
+        </div>
+
+        <div class="mt-30">
+          <label style="font-size: 14px; font-weight: 500; color: var(--text-main);">Compression Mode</label>
+          <div class="radio-group mt-10">
+            <label class="radio-card"><input type="radio" name="pdfMode" value="high"> High (Width 1080px, Qual
+              70)</label>
+            <label class="radio-card"><input type="radio" name="pdfMode" value="medium" checked> Medium (Long edge
+              2560px, Qual 75)</label>
+            <label class="radio-card"><input type="radio" name="pdfMode" value="low"> Low (Long edge 4000px, Qual
+              90)</label>
+            <label class="radio-card"><input type="radio" name="pdfMode" value="custom"> Custom</label>
+          </div>
+          <div class="hint mt-10" style="color: var(--text-muted); font-size: 13px;">Width modes give every page the
+            same width, so pages line up evenly.</div>
+        </div>
+
+        <div id="pdfCustomSettingsBlock" class="custom-settings mt-20 hidden">
+          <div class="settings-box compact-row">
+            <div class="input-item">
+              <label>Mode</label>
+              <select id="pdfCustomResizeAxis" class="select-input" style="width: 120px;">
+                <option value="long">Long Edge</option>
+                <option value="short">Short Edge</option>
+                <option value="width">Width</option>
+              </select>
+            </div>
+            <div class="input-item">
+              <label>Size (px)</label>
+              <input type="number" id="pdfCustomSize" class="select-input" value="2048" style="width: 90px;">
+            </div>
+            <div class="input-item">
+              <label>Quality (%)</label>
+              <input type="number" id="pdfCustomQual" class="select-input" value="80" min="1" max="100"
+                style="width: 80px;">
+            </div>
+          </div>
+        </div>
+
+        <div class="input-group mt-30">
+          <label>Output PDF</label>
+          <div class="browse-row">
+            <input type="text" id="pdfOutputInput" readonly placeholder="Choose where to save the PDF...">
+            <button id="btnBrowsePdfOutput" class="btn-primary">Browse</button>
+          </div>
+        </div>
+
+        <button id="btnStartPdf" class="btn-primary btn-large mt-30" disabled>Export PDF</button>
+
+        <div class="progress-container mt-20 hidden" id="pdfProgressContainer">
+          <div class="progress-bar">
+            <div class="progress-fill" id="pdfProgressFill"></div>
+          </div>
+          <div class="progress-text mt-10" id="pdfProgressText">Initializing...</div>
+          <button id="btnCancelPdf" class="btn-cancel mt-10">Cancel Process</button>
+          <button id="btnShowPdf" class="btn-secondary btn-centered mt-10 hidden">Show in Finder</button>
         </div>
       </section>
     </main>

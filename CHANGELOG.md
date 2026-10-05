@@ -6,6 +6,10 @@ All notable changes, fixes, and improvements to **Pixiy** are documented in this
 
 ## [Unreleased]
 
+### Added
+- **PDF Presentation module**: Add photos or folders (button or drag from Finder), drag tiles to set page order, remove or sort by name, then export a single PDF. Each photo is resized and compressed on the way in using the same High / Medium / Low / Custom presets as Batch Compress (High = every page 1080px wide). Unreadable files are skipped and listed in the failure log; transparent PNGs are flattened onto white. Pages are written to disk as they're encoded, so large sets don't load into memory.
+- Landing page now shows four module cards in one row (2×2 on narrow windows).
+
 ### Fixed
 - **Hidden macOS `._` files counted as photos**: On external/exFAT/network drives macOS creates hidden `._filename.jpg` metadata companions. The scanner treated them as images, doubling the count in Batch Compress (and Extract) and reporting every one as failed. Hidden entries (names starting with `.`) are now skipped in the image scanner and the Merge ZIP folder listing.
 - **Compress progress stalling on failures**: Failed files now advance the progress bar so it reaches 100%.
